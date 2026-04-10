@@ -19,7 +19,7 @@ def cleanup_cache():
     cache_dirs = [d.strip() for d in cache_dirs_str.split(':') if d.strip()]
     max_full_ratio = float(os.environ.get('OCI_QC_MAX_FULL', 0.9))
     target_ratio = float(os.environ.get('OCI_QC_CLEAN_TARGET', 0.7))
-    max_files_limit = int(os.environ.get('OCI_QC_MAX_CACHE_NO', 1000))
+    max_files_limit = int(os.environ.get('OCI_QC_MAX_CACHE_NO', 50000000))
 
     for cache_dir in cache_dirs:
         if not os.path.exists(cache_dir):

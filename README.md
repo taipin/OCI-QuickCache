@@ -7,18 +7,21 @@ This repository contains an Ansible role and helper scripts that provide a unive
 - **Site-wide Python S3 cache integration:** [ansible/roles/oci_qc/files/sitecustomize.py](ansible/roles/oci_qc/files/sitecustomize.py)
 - **Cache cleanup utility:** [ansible/roles/oci_qc/files/oci_qc_cleanup.py](ansible/roles/oci_qc/files/oci_qc_cleanup.py)
 
-**Features (from `sitecustomize.py`)**
+**Object Caching Features**
+- **No code changes:** User just set PYTHONPATH to include the path where the module resides and run python job as usual.
 - **Universal S3 cache:** Monkey-patches `botocore.client.BaseClient._make_api_call` to add a local cache layer for S3 `GetObject` calls.
 - **Deterministic sharding:** Maps S3 resources (bucket+key) via MD5 hashing to shards distributed across discovered mount points.
+- **Minimal cache rebuilding:** When cluster resizes (increases or reduces), most existing caches will stay and serve.
 - **Shard discovery & refresh:** Discovers cache mount points using a filesystem glob and validates mounts; writes an atomic shard map and refreshes it periodically.
 - **Atomic streaming (TEE):** Streams S3 responses to the client while teeing the response to a temp file that is atomically renamed when complete.
 - **Conditional 304 checks:** When cache is expired, does an `If-Modified-Since` / `If-None-Match` conditional request to avoid unnecessary downloads and refresh cache on `304`.
 - **Byte-range support:** Honors Range requests and serves 206 responses from cache when applicable.
 - **Direct I/O option:** Experimental `O_DIRECT`-based reader for aligned reads (controlled by `USE_DIRECT_IO`).
 - **Path validation & graceful fallback:** Validates path length and mount availability; falls back to network on failures and logs error reasons.
+- **Original "Folder" structure:** Region, Bucket, and object's full path are kept
 - **CSV logging:** Audit events and errors are appended to CSV files for monitoring (`OCI_QC_LOG_FILE`, `OCI_QC_ERR_FILE`).
 
-**Features (from `oci_qc_cleanup.py`)**
+**Cache Eviction Features**
 - **Disk and inode-aware cleanup:** Inspects disk usage and inode counts to determine if cleanup is needed.
 - **LRU-style removal:** Walks cache directories and removes least-recently-accessed files until target free space / file count is reached.
 - **Configurable thresholds:** Adjustable full/target ratios and maximum file limits.
@@ -29,18 +32,16 @@ This repository contains an Ansible role and helper scripts that provide a unive
 - **Sitecustomize / runtime**
 	- **OCI_QC_MAX_CACHE_AGE:** TTL in seconds (default: `360000`).
 	- **OCI_QC_CACHE_DIR_PREFIX:** Mount discovery glob prefix (default: `/tmp/cache_test/fs-`).
-	- **OCI_QC_SHARD_PREFIX:** Directory prefix for shards (default: `shard_`).
 	- **OCI_QC_SHARDS_PER_NODE:** Shards per mount (default: `4`).
-	- **OCI_QC_SHARD_MAP_FILE:** Shard map file (default: `oci_qc_shard_map.json`).
+	- **OCI_QC_SHARD_MAP_FILE:** In memory (for fast mapping) and persistent (for updates) Shard map (default: `oci_qc_shard_map.json`).
 	- **OCI_QC_LOG_FILE / OCI_QC_ERR_FILE:** CSV audit and error logs (defaults: `boto3_cache_audit.csv`, `boto3_cache_errors.csv`).
 	- **OCI_QC_SHARD_MAP_REFRESH_INTERVAL:** Seconds between shard-map refreshes (default: `600`).
-	- **USE_DIRECT_IO:** `True`/`False` to enable `O_DIRECT` (default: `False`).
 
 - **Cleanup utility**
 	- **OCI_QC_CACHE_DIRS:** Colon-separated list of cache root directories (default in script: `/mnt/localdisk/object_store/OCI_QC_Cache`).
 	- **OCI_QC_MAX_FULL:** Disk full ratio that triggers cleanup (default: `0.9`).
 	- **OCI_QC_CLEAN_TARGET:** Target ratio to reach after cleanup (default: `0.7`).
-	- **OCI_QC_MAX_CACHE_NO:** Maximum file-count threshold (default: `1000`).
+	- **OCI_QC_MAX_CACHE_NO:** Maximum file-count threshold (default: `50000000`).
 
 Installation & quick test (see test/README.md for details on running a get_latency test)
 
