@@ -58,7 +58,7 @@ mlpstorage training run \
     --mpi-params "--report-bindings --bind-to hwthread --map-by ppr:${gpus}:node:pe=${pe_per_mpi} \
         -x PYTHONPATH -x PATH \
         -x UCX_TLS -x UCX_NET_DEVICES -x HCOLL_MAIN_IB \
-        -x OCI_QC_CACHE_DIR -x OCI_QC_SHARD_PREFIX -x OCI_QC_NUM_SHARDS -x OCI_QC_SHARD_FORM -x OCI_QC_LOG_FILE \
+        -x OCI_QC_CACHE_DIR_PREFIX -x OCI_QC_SHARD_PREFIX -x OCI_QC_SHARDS_PER_NODE -x OCI_QC_SHARD_FORM -x OCI_QC_LOG_FILE -x OCI_QC_ERR_FILE \
         -x CONDA_PREFIX -x CONDA_PYTHON_EXE -x CONDA_DEFAULT_ENV" \
     --exec-type mpi 2>&1 | tee LOG_2n_${gpus}_${storage_type}
 

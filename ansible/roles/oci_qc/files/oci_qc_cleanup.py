@@ -11,9 +11,9 @@ logging.basicConfig(
 )
 
 def cleanup_cache():
-    cache_dirs_str = os.environ.get('OCI_QC_CACHE_DIR', '/mnt/localdisk/object_store/OCI_QC_Cache')
+    cache_dirs_str = os.environ.get('OCI_QC_CACHE_DIRS', '/mnt/localdisk/object_store/OCI_QC_Cache')
     if not cache_dirs_str:
-        logging.warning("OCI_QC_CACHE_DIR not set. Skipping.")
+        logging.warning("OCI_QC_CACHE_DIRS not set. Skipping.")
         return
     
     cache_dirs = [d.strip() for d in cache_dirs_str.split(':') if d.strip()]

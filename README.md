@@ -37,7 +37,7 @@ This repository contains an Ansible role and helper scripts that provide a unive
 	- **USE_DIRECT_IO:** `True`/`False` to enable `O_DIRECT` (default: `False`).
 
 - **Cleanup utility**
-	- **OCI_QC_CACHE_DIR:** Colon-separated list of cache root directories (default in script: `/mnt/localdisk/object_store/OCI_QC_Cache`).
+	- **OCI_QC_CACHE_DIRS:** Colon-separated list of cache root directories (default in script: `/mnt/localdisk/object_store/OCI_QC_Cache`).
 	- **OCI_QC_MAX_FULL:** Disk full ratio that triggers cleanup (default: `0.9`).
 	- **OCI_QC_CLEAN_TARGET:** Target ratio to reach after cleanup (default: `0.7`).
 	- **OCI_QC_MAX_CACHE_NO:** Maximum file-count threshold (default: `1000`).
@@ -73,7 +73,7 @@ python3 my_app.py
 2) Run the cleanup utility manually (quick smoke test):
 
 ```bash
-OCI_QC_CACHE_DIR=/tmp/cache_test/fs-0 python3 ansible/roles/oci_qc/files/oci_qc_cleanup.py
+OCI_QC_CACHE_DIRS=/tmp/cache_test/fs-0 python3 ansible/roles/oci_qc/files/oci_qc_cleanup.py
 ```
 
 3) Using the Ansible role
