@@ -1,7 +1,0 @@
----
-- hosts: compute
-  become: yes
-  vars:
-    oci_qc_cache_dirs: "/mnt/localdisk/object_store/OCI_QC_Cache"
-  roles:
-    - oci_qc
