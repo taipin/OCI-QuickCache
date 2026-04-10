@@ -46,17 +46,25 @@ Installation & quick test
 
 1) Enable the Python S3 cache (two options):
 
-- Temporary / per-shell: add the role `files` dir to `PYTHONPATH` so `sitecustomize.py` can be imported by processes:
+- Temporary / per-shell (good for testing on a single node): add the role `files` dir to `PYTHONPATH` so `sitecustomize.py` can be imported by processes:
 
 ```bash
 export PYTHONPATH="$(pwd)/ansible/roles/oci_qc/files:$PYTHONPATH"
 python3 -c "import sitecustomize; print('SITECUSTOMIZE loaded')"
 ```
 
-- System-wide: install `sitecustomize.py` to a directory on Python's import path (example shown for a typical Linux install; adjust Python version/path as needed):
+- System-wide (not recommended): install `sitecustomize.py` to a directory on Python's import path (example shown for a typical Linux install; adjust Python version/path as needed):
 
 ```bash
 sudo cp ansible/roles/oci_qc/files/sitecustomize.py /usr/local/lib/python3.9/site-packages/sitecustomize.py
+```
+
+- System-wide (recommended): install `sitecustomize.py` to a customized directory on all compute nodes via ansible (see ansible/README.md for more details):
+
+```bash
+cd ansible
+vi inventory.ini site.yml
+ansible-playbook -i inventory.ini site.yml
 ```
 
 After installation, any Python process that imports `boto3`/`botocore` will use the caching logic for `GetObject` where applicable.
@@ -78,4 +86,5 @@ ansible-playbook -i ansible/inventory.ini ansible/site.yml
 Notes & next steps
 - The `sitecustomize.py` is intentionally aggressive (monkey-patches `botocore`) — test in a staging environment before rolling to production.
 - The role also contains systemd unit and timer templates that can schedule `oci_qc_cleanup.py` runs; these can be enabled via the playbook.
+- > **Warning:** Be extremely careful when setting the Ansible variable `oci_qc_cache_dirs` (environment variable `OCI_QC_CACHE_DIRS`). Its default value is `/mnt/localdisk/object_store/OCI_QC_Cache`. Do NOT set this to directories that contain non-cache data — those files may be deleted by the cleanup service.
 - Logs and CSV outputs are local files; consider shipping them to your monitoring system for visibility.
