@@ -1,0 +1,65 @@
+---
+- name: Ensure log directory exists
+  file:
+    path: /var/log/ociqc
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure ociqc site directory exists
+  file:
+    path: /opt/oci-hpc/ociqc
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy sitecustomize script
+  copy:
+    src: sitecustomize.py
+    dest: /opt/oci-hpc/ociqc/sitecustomize.py
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy cleanup Python script
+  copy:
+    src: oci_qc_cleanup.py
+    dest: /opt/oci-hpc/ociqc/oci_qc_cleanup.py
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Deploy systemd service
+  template:
+    src: oci_qc_cleanup.service.j2
+    dest: /etc/systemd/system/oci_qc_cleanup.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
+- name: Copy systemd timer
+  copy:
+    src: oci_qc_cleanup.timer
+    dest: /etc/systemd/system/oci_qc_cleanup.timer
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+
+- name: Copy logrotate config
+  copy:
+    src: oci_qc.logrotate
+    dest: /etc/logrotate.d/oci_qc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Ensure timer is enabled and started
+  systemd:
+    name: oci_qc_cleanup.timer
+    enabled: yes
+    state: started
+
