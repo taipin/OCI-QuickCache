@@ -42,13 +42,13 @@ This repository contains an Ansible role and helper scripts that provide a unive
 	- **OCI_QC_CLEAN_TARGET:** Target ratio to reach after cleanup (default: `0.7`).
 	- **OCI_QC_MAX_CACHE_NO:** Maximum file-count threshold (default: `1000`).
 
-Installation & quick test
+Installation & quick test (see test/README.md for details on running a get_latency test)
 
 1) Enable the Python S3 cache (two options):
 
 - Temporary / per-shell (good for testing on a single node): add the role `files` dir to `PYTHONPATH` so `sitecustomize.py` can be imported by processes:
 
-```bash
+```
 export PYTHONPATH="$(pwd)/ansible/roles/oci_qc/files:$PYTHONPATH"
 python3 -c "import sitecustomize; print('SITECUSTOMIZE loaded')"
 ```
@@ -58,6 +58,7 @@ python3 -c "import sitecustomize; print('SITECUSTOMIZE loaded')"
 ```bash
 sudo cp ansible/roles/oci_qc/files/sitecustomize.py /usr/local/lib/python3.9/site-packages/sitecustomize.py
 ```
+After installation, any Python process that imports `boto3`/`botocore` will use the caching logic for `GetObject` where applicable.
 
 - System-wide (recommended): install `sitecustomize.py` to a customized directory on all compute nodes via ansible (see ansible/README.md for more details):
 
@@ -66,8 +67,8 @@ cd ansible
 vi inventory.ini site.yml
 ansible-playbook -i inventory.ini site.yml
 ```
-
-After installation, any Python process that imports `boto3`/`botocore` will use the caching logic for `GetObject` where applicable.
+export PYTHONPATH="<PATH_CONTAINING_sitecustomize.py>:$PYTHONPATH"
+python3 my_app.py
 
 2) Run the cleanup utility manually (quick smoke test):
 
