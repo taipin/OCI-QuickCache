@@ -1,7 +1,13 @@
 import os
 import logging
+import yaml
 
-LOG_FILE = "/var/log/ociqc/cleanup.log"
+# --- CONFIGURATION ---
+ENV_PATH = os.getenv("OCI_QC_ENV_PATH") or os.path.join(os.path.dirname(__file__), "env.yaml")
+with open(ENV_PATH, 'r') as y:
+    CFG = yaml.safe_load(y)
+
+LOG_FILE = CFG['OCI_QC_CLEANUP_LOG']
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
 logging.basicConfig(
@@ -11,15 +17,25 @@ logging.basicConfig(
 )
 
 def cleanup_cache():
-    cache_dirs_str = os.environ.get('OCI_QC_CACHE_DIRS', '/mnt/localdisk/object_store/OCI_QC_Cache')
+    val1 = CFG.get('OCI_QC_CACHE_DIR_LOCAL')
+    val2 = CFG.get('OCI_QC_CACHE_DIR_NAME')
+
+    if val1 and val2:
+        cache_dirs_str = f"{val1}/{val2}"
+    else:
+        cache_dirs_str = False
+
     if not cache_dirs_str:
-        logging.warning("OCI_QC_CACHE_DIRS not set. Skipping.")
+        logging.warning("OCI_QC_CACHE_DIR_LOCAL not set. Skipping.")
         return
     
     cache_dirs = [d.strip() for d in cache_dirs_str.split(':') if d.strip()]
-    max_full_ratio = float(os.environ.get('OCI_QC_MAX_FULL', 0.9))
+    max_full_ratio = float(os.environ.get('OCI_QC_CLEAN_MAX', 0.9))
     target_ratio = float(os.environ.get('OCI_QC_CLEAN_TARGET', 0.7))
-    max_files_limit = int(os.environ.get('OCI_QC_MAX_CACHE_NO', 50000000))
+    max_files_limit = int(os.environ.get('OCI_QC_MAX_CACHE_FILES', 500000000))
+    #max_full_ratio = float(CFG['OCI_QC_CLEAN_MAX']
+    #target_ratio = float(CFG['OCI_QC_CLEAN_TARGET']
+    #max_files_limit = int(CFG['OCI_QC_MAX_CACHE_FILES']
 
     for cache_dir in cache_dirs:
         if not os.path.exists(cache_dir):
@@ -108,4 +124,3 @@ def cleanup_cache():
 
 if __name__ == "__main__":
     cleanup_cache()
-

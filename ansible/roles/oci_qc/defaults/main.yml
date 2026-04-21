@@ -1,0 +1,11 @@
+# Group and Permissions
+ociqc_group_name: "ociqc-group"
+ociqc_gid: 1500
+
+# Paths
+#ociqc_shared_dir: "/fss/ociqc"
+#ociqc_local_log_dir: "/var/log/ociqc"
+
+# Service Configuration
+#ociqc_sync_interval: "10min"
+

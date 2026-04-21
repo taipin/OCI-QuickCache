@@ -1,15 +1,60 @@
 ---
-- name: Ensure log directory exists
+- name: Install ACL package for Ubuntu
+  apt:
+    name: acl
+    state: present
+    update_cache: yes
+
+- name: Verify {{ ociqc_group_name }} is visible via SSSD
+  getent:
+    database: group
+    key: "{{ ociqc_group_name }}"
+  register: group_check
+  failed_when: group_check is failed
+
+- name: Create local user log directory {{ OCI_QC_LOG_FILE | dirname }} with SetGID/Sticky Bit
   file:
-    path: /var/log/ociqc
+    path: "{{ OCI_QC_LOG_FILE | dirname }}"
+    state: directory
+    owner: root
+    group: "{{ ociqc_group_name }}"
+    mode: '2775'
+
+- name: Apply Default ACLs to {{ OCI_QC_LOG_FILE | dirname }} for shared group writing
+  ansible.posix.acl:
+    path: "{{ OCI_QC_LOG_FILE | dirname }}"
+    entity: "{{ ociqc_group_name }}"
+    etype: group
+    permissions: rwX
+    default: yes
+    state: present
+  # This ensures every NEW file created by ANY user is rw for the whole group
+
+- name: Create cache directory {{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }} with Sticky Bit
+  file:
+    path: "{{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }}"
+    state: directory
+    owner: root
+    group: "{{ ociqc_group_name }}"
+    mode: '1775'
+
+- name: Ensure /var/log/ociqc persistence via tmpfiles.d
+  copy:
+    dest: /etc/tmpfiles.d/ociqc.conf
+    content: "d {{ OCI_QC_LOG_FILE | dirname }} 2775 root {{ ociqc_group_name }} -"
+    mode: '0644'
+
+- name: Ensure shared directory {{ OCI_QC_MAPPING_LOG | dirname }} for mapping file exists
+  file:
+    path: "{{ OCI_QC_MAPPING_LOG | dirname }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
 
-- name: Ensure ociqc site directory exists
+- name: Ensure install directory {{ OCI_QC_INSTALL_DIR }} exists
   file:
-    path: /opt/oci-hpc/ociqc
+    path: "{{ OCI_QC_INSTALL_DIR }}"
     state: directory
     owner: ubuntu
     group: ubuntu
@@ -18,7 +63,15 @@
 - name: Copy sitecustomize script
   copy:
     src: sitecustomize.py
-    dest: /opt/oci-hpc/ociqc/sitecustomize.py
+    dest: "{{ OCI_QC_INSTALL_DIR }}/sitecustomize.py"
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy env.yaml script
+  copy:
+    src: env.yaml
+    dest: "{{ OCI_QC_INSTALL_DIR }}/env.yaml"
     owner: ubuntu
     group: ubuntu
     mode: '0755'
@@ -26,7 +79,7 @@
 - name: Copy cleanup Python script
   copy:
     src: oci_qc_cleanup.py
-    dest: /opt/oci-hpc/ociqc/oci_qc_cleanup.py
+    dest: "{{ OCI_QC_INSTALL_DIR }}/oci_qc_cleanup.py"
     owner: ubuntu
     group: ubuntu
     mode: '0755'
@@ -49,9 +102,9 @@
     mode: '0644'
   notify: reload systemd
 
-- name: Copy logrotate config
-  copy:
-    src: oci_qc.logrotate
+- name: Deploy logrotate config
+  template:
+    src: oci_qc.logrotate.j2
     dest: /etc/logrotate.d/oci_qc
     owner: root
     group: root

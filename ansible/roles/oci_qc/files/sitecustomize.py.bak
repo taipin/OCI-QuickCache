@@ -1,43 +1,29 @@
 # sitecustomize.py. It integrates S3 Sharding, Atomic Streaming (TEE), LRU Background Cleanup, Conditional 304 Checks (ETag + Timestamp), and Byte-Range Request support.
-import sys, os, pwd, json, yaml, hashlib, random, glob, time, csv, threading, boto3, botocore, re
+import sys, os, pwd, json, hashlib, random, glob, time, csv, threading, boto3, botocore, re
 from urllib.parse import urlparse
 from contextlib import contextmanager
 from botocore.exceptions import ClientError
 
 # --- Configuration ---
+OCI_QC_MAX_CACHE_AGE = int(os.getenv("OCI_QC_MAX_CACHE_AGE", 360000))  # TTL in seconds, invalidate cache above it
 #OCI_QC_MAX_CACHE_NO = int(os.getenv("OCI_QC_MAX_CACHE_NO", 5000000))   # Max number of files to cache
 #OCI_QC_MAX_CACHE_SIZE_BYTES = int(os.getenv("OCI_QC_MAX_CACHE_SIZE_BYTES", 5000 * 1024**3))
-
-OCI_QC_NUM_SHARDS = 1       # Global, number of total shards to be determined by OCI_QC_SHARDS_PER_NODE and the number of nodes
-OCI_QC_SHARD_MAP = None     # In-memory shard-to-node (file sys) map
+OCI_QC_CACHE_DIR_PREFIX = os.getenv("OCI_QC_CACHE_DIR_PREFIX", "/tmp/cache_test/fs-")
+OCI_QC_SHARD_PREFIX = os.getenv("OCI_QC_SHARD_PREFIX", "shard_")
+#OCI_QC_NUM_SHARDS = int(os.getenv("OCI_QC_NUM_SHARDS", 4))   # Calculated, not used anymore
+OCI_QC_SHARDS_PER_NODE = int(os.getenv("OCI_QC_SHARDS_PER_NODE", 4))
+OCI_QC_SHARD_FORM = os.getenv("OCI_QC_SHARD_FORM", "03d")
+OCI_QC_LOG_FILE = os.getenv("OCI_QC_LOG_FILE", "boto3_cache_audit.csv")
+OCI_QC_ERR_FILE = os.getenv("OCI_QC_ERR_FILE", "boto3_cache_errors.csv")
+OCI_QC_STOP_ON_SHARD_FAILURE = os.getenv("OCI_QC_STOP_ON_SHARD_FAILURE", False)
+OCI_QC_SHARD_MAP_FILE = os.getenv("OCI_QC_SHARD_MAP_FILE", "oci_qc_shard_map.json")
+OCI_QC_SHARD_MAP_REFRESH_INTERVAL = int(os.getenv("OCI_QC_SHARD_MAP_REFRESH_INTERVAL", 600)) # time interval in seconds to refresh shard map
 OCI_QC_LAST_CHECK_TIME = 0  # In-memory global for current process
-USER_NAME = pwd.getpwuid(os.getuid()).pw_name   # for cache subdir
+OCI_FS_PATTERN = f"{OCI_QC_CACHE_DIR_PREFIX}*"  # search pattern for mount points example /object_store_
+OCI_QC_ROOT_DEV_ID = os.stat('/').st_dev   # will check against to avoid root device if not /tmp
 #USE_DIRECT_IO = True   # an experimental parameter to control cache read
 USE_DIRECT_IO = False
-OCI_QC_ROOT_DEV_ID = os.stat('/').st_dev   # will check against to avoid root device if not /tmp
-
-ENV_PATH = os.getenv("OCI_QC_ENV_PATH") or os.path.join(os.path.dirname(__file__), "env.yaml")
-try:
-    with open(ENV_PATH, 'r') as y:
-        CFG = yaml.safe_load(y) or {}
-except NameError:
-    print("Error: The 'yaml' library is not imported.")
-    CFG = {}
-except (FileNotFoundError, yaml.YAMLError) as e:
-    print(f"Warning: Could not load {ENV_PATH} ({e}). Using code defaults.")
-    CFG = {}
-
-OCI_QC_SHARD_MAP_FILE = CFG.get('OCI_QC_SHARD_MAP_FILE') or "/fss/ociqc/shard_map.json"
-#OCI_QC_CACHE_DIR_PREFIX = CFG.get('OCI_QC_CACHE_DIR_PREFIX') or "/tmp/cache_test/fs-"
-OCI_QC_CACHE_DIR_NAME = CFG.get('OCI_QC_CACHE_DIR_NAME') or "OCI_QC_Cache"
-OCI_QC_SHARD_PREFIX = CFG.get('OCI_QC_SHARD_PREFIX') or ""
-OCI_QC_SHARD_FORM = CFG.get('OCI_QC_SHARD_FORM') or "03d"
-#OCI_QC_SHARDS_PER_NODE = int(CFG.get('OCI_QC_SHARDS_PER_NODE') or 4)
-#OCI_QC_MAPPING_LOG = CFG.get('OCI_QC_MAPPING_LOG') or "/var/log/ociqc/mapping.log"
-OCI_QC_LOG_FILE = os.getenv("OCI_QC_LOG_FILE") or CFG.get('OCI_QC_LOG_FILE') or "cache_log.csv"
-OCI_QC_ERR_FILE = os.getenv("OCI_QC_ERR_FILE") or CFG.get('OCI_QC_ERR_FILE') or "cache_err.csv"
-OCI_QC_MAX_CACHE_AGE = int(os.getenv("OCI_QC_MAX_CACHE_AGE") or CFG.get('OCI_QC_MAX_CACHE_AGE') or 36000000)  # TTL in seconds, invalidate cache above it
-OCI_QC_MAP_RELOAD_INTERVAL = int(os.getenv("OCI_QC_MAP_RELOAD_INTERVAL") or CFG.get('OCI_QC_MAP_RELOAD_INTERVAL') or 600) # time interval in seconds to refresh shard map
+USER_NAME = pwd.getpwuid(os.getuid()).pw_name   # for cache subdir
 
 #print(f"xh envs OCI_QC_SHARD_PREFIX = {OCI_QC_SHARD_PREFIX}, OCI_QC_LOG_FILE = {OCI_QC_LOG_FILE}")
 # --- Locking Mechanism ---
@@ -74,6 +60,122 @@ def lock_shard_map():
         else:
             yield
 
+def is_valid_mount(path):
+    """
+    Vets a mount point.
+    Allows anything in /tmp/ (for testing).
+    Otherwise, requires a separate physical device (for production).
+    """
+    try:
+        # Normalize path to handle trailing slashes
+        norm_path = os.path.normpath(path)
+
+        # 1. THE EXCEPTION: If it's in /tmp, allow it immediately
+        if norm_path.startswith('/tmp/'):
+            return os.path.exists(norm_path)
+
+        # 2. THE PRODUCTION RULE: Must be a separate device from root
+        return os.stat(norm_path).st_dev != OCI_QC_ROOT_DEV_ID
+
+    except (OSError, PermissionError):
+        return False
+
+def handle_shard_failure(message):
+    if OCI_QC_STOP_ON_SHARD_FAILURE:
+        print(f"CRITICAL: {message} Exiting...")
+        sys.exit(1)
+    else:
+        print(f"CRITICAL: {message} Keep going without OCI_QC...")
+
+    return None
+
+# --- Initialize shard map
+def initialize_sharding():
+    """Discovers mounts and returns shard map. Returns None on failure to bypass cache."""
+    try:
+        # Fast path: if map exists, read it without a lock
+        if os.path.exists(OCI_QC_SHARD_MAP_FILE):
+            with open(OCI_QC_SHARD_MAP_FILE, 'r') as f:
+                return json.load(f)
+
+        # Everything else goes inside the lock
+        with lock_shard_map():
+            # Double check existence after acquiring lock
+            if os.path.exists(OCI_QC_SHARD_MAP_FILE):
+                with open(OCI_QC_SHARD_MAP_FILE, 'r') as f:
+                    return json.load(f)
+
+            # 1. Discover and Filter
+            mount_points = sorted(glob.glob(OCI_FS_PATTERN))
+            mount_points = [p for p in mount_points if is_valid_mount(p)]
+
+            if not mount_points:
+                return handle_shard_failure("No valid mounts found.")
+
+            # 2. Map Generation
+            N = len(mount_points)
+            total_shards = N * OCI_QC_SHARDS_PER_NODE
+            shard_map = {str(i): mount_points[i % N] for i in range(total_shards)}
+
+            # 3. Atomic Persistence
+            tmp_file = OCI_QC_SHARD_MAP_FILE + ".tmp"
+            with open(tmp_file, 'w') as f:
+                json.dump(shard_map, f)
+            os.rename(tmp_file, OCI_QC_SHARD_MAP_FILE)
+            
+            return shard_map
+
+    except Exception as e:
+        # Catch locking errors, JSON errors, or permission errors
+        print(f"CRITICAL: Sharding initialization failed: {e}. Bypassing cache.")
+        return None
+
+
+# Load map into memory once at startup and hard-set OCI_QC_SHARD_MAP to 1 to avoid divide by zero
+OCI_QC_SHARD_MAP = initialize_sharding()
+OCI_QC_NUM_SHARDS = len(OCI_QC_SHARD_MAP) if OCI_QC_SHARD_MAP else 1
+
+# --- Utility Functions ---
+def get_shard_details(bucket, key, region=None):
+    global OCI_QC_LAST_CHECK_TIME, OCI_QC_SHARD_MAP, OCI_QC_NUM_SHARDS
+    
+    now = time.time()
+    # Check if we need to refresh (every 10 mins)
+    if (now - OCI_QC_LAST_CHECK_TIME) > OCI_QC_SHARD_MAP_REFRESH_INTERVAL:
+        OCI_QC_SHARD_MAP = initialize_sharding()
+        OCI_QC_NUM_SHARDS = len(OCI_QC_SHARD_MAP)
+        OCI_QC_LAST_CHECK_TIME = now
+
+    if OCI_QC_SHARD_MAP is None:
+        # Return dummy values that signal 'is_available = False'
+        return "", "", 0, False
+
+    # Standard Hashing Logic
+    resource_path = f"s3://{bucket}/{key}"
+    url_hash = hashlib.md5(resource_path.encode('utf-8')).hexdigest()
+    
+    shard_idx = int(url_hash, 16) % OCI_QC_NUM_SHARDS
+    mount_path = OCI_QC_SHARD_MAP[str(shard_idx)]
+    
+    # Path construction
+    shard_name = f"{OCI_QC_SHARD_PREFIX}{shard_idx:{OCI_QC_SHARD_FORM}}"
+    shard_dir = os.path.join(mount_path, f"OCI_QC_Cache/{USER_NAME}", shard_name)
+    region = region or "unknown-region"
+    key_dir = os.path.dirname(key).lstrip('/')
+    key_file = os.path.basename(key) or 'object.bin'
+    # Check if the disk is actually mounted
+    is_available = is_valid_mount(mount_path)
+
+    full_path = os.path.join(
+        shard_dir,
+        region,
+        bucket,
+        key_dir,
+        key_file
+    )
+
+    return full_path, url_hash, shard_idx, is_available
+
 def log_event(resource, reason, file_path, url_hash, shard_idx):
     file_exists = os.path.isfile(OCI_QC_LOG_FILE)
     size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
@@ -99,95 +201,6 @@ def log_error_event(resource, reason, file_path, url_hash, shard_idx):
         # swallow errors to avoid affecting normal flow
         pass
 
-def is_valid_mount(path):
-    """
-    Vets a mount point.
-    Allows anything in /tmp/ (for testing).
-    Otherwise, requires a separate physical device (for production).
-    """
-    try:
-        # Normalize path to handle trailing slashes
-        norm_path = os.path.normpath(path)
-
-        # 1. THE EXCEPTION: If it's in /tmp, allow it immediately
-        if norm_path.startswith('/tmp/'):
-            return os.path.exists(norm_path)
-
-        # 2. THE PRODUCTION RULE: Must be a separate device from root
-        return os.stat(norm_path).st_dev != OCI_QC_ROOT_DEV_ID
-
-    except (OSError, PermissionError):
-        return False
-
-def get_shard_map_from_disk():
-    """Read-only access to the shard map file."""
-    try:
-        if os.path.exists(OCI_QC_SHARD_MAP_FILE):
-            with open(OCI_QC_SHARD_MAP_FILE, 'r') as f:
-                return json.load(f)
-        else:
-            log_error_event(f"get_shard_map_from_disk", "MAP_MISSING", OCI_QC_SHARD_MAP_FILE, "", 0)
-
-    except Exception as e:
-        log_error_event("get_shard_map_from_disk", "READ_FAILED", OCI_QC_SHARD_MAP_FILE, "", 0)
-        #print(f"ERROR: [sitecustomize] Failed to read shard map: {e}")
-    return None
-
-def refresh_shard_state():
-    """Updates the global shard mapping variables from disk."""
-    global OCI_QC_SHARD_MAP, OCI_QC_NUM_SHARDS, OCI_QC_LAST_CHECK_TIME
-
-    new_map = get_shard_map_from_disk()
-    if new_map:
-        OCI_QC_SHARD_MAP = new_map
-        OCI_QC_NUM_SHARDS = len(new_map)
-        print(f"new_map = {new_map}")
-    else:
-        # If file is missing/corrupt, we keep old map or set safe defaults
-        OCI_QC_NUM_SHARDS = len(OCI_QC_SHARD_MAP) if OCI_QC_SHARD_MAP else 1
-
-    OCI_QC_LAST_CHECK_TIME = time.time()
-
-# Initial load during Python startup
-refresh_shard_state()
-
-def get_shard_details(bucket, key, region=None):
-    global OCI_QC_LAST_CHECK_TIME, OCI_QC_SHARD_MAP, OCI_QC_NUM_SHARDS
-
-    now = time.time()
-    # Check if we need to refresh (every 10 mins)
-    if (now - OCI_QC_LAST_CHECK_TIME) > OCI_QC_MAP_RELOAD_INTERVAL:
-        refresh_shard_state()
-
-    if OCI_QC_SHARD_MAP is None:
-        log_error_event(f"s3://{bucket}/{key}", "MAP_IS_NONE", OCI_QC_SHARD_MAP_FILE, "", 0)
-        return "", "", 0, False
-
-    # Standard Hashing Logic
-    resource_path = f"s3://{bucket}/{key}"
-    url_hash = hashlib.md5(resource_path.encode('utf-8')).hexdigest()
-
-    shard_idx = int(url_hash, 16) % OCI_QC_NUM_SHARDS
-    mount_path = OCI_QC_SHARD_MAP.get(str(shard_idx))
-
-    if not mount_path:
-        log_error_event(f"s3://{bucket}/{key}", "SHARD_INDEX_NOT_FOUND", OCI_QC_SHARD_MAP_FILE, url_hash, shard_idx)
-        return "", url_hash, shard_idx, False
-
-    # Path construction
-    shard_name = f"{OCI_QC_SHARD_PREFIX}{shard_idx:{OCI_QC_SHARD_FORM}}"
-    shard_dir = os.path.join(mount_path, f"{OCI_QC_CACHE_DIR_NAME}/{USER_NAME}", shard_name)
-    region = region or "unknown-region"
-    key_dir = os.path.dirname(key).lstrip('/')
-    key_file = os.path.basename(key) or 'object.bin'
-
-    # Check if the disk is actually mounted
-    is_available = is_valid_mount(mount_path)
-
-    full_path = os.path.join(shard_dir, region, bucket, key_dir, key_file)
-    return full_path, url_hash, shard_idx, is_available
-
-
 def parse_range(range_str, total_size):
     if not range_str: return 0, total_size - 1
     match = re.match(r'bytes=(\d+)-(\d*)', range_str)
@@ -195,44 +208,6 @@ def parse_range(range_str, total_size):
     start = int(match.group(1))
     end = int(match.group(2)) if match.group(2) else total_size - 1
     return start, min(end, total_size - 1)
-
-def _infer_region_from_endpoint(client):
-    """
-    Prefer region parsed from the real endpoint host.
-    This avoids profile/default-region drift when endpoint_url is overridden.
-    """
-    endpoint_candidates = []
-    endpoint_obj = getattr(client, "_endpoint", None)
-    endpoint_host = getattr(endpoint_obj, "host", None)
-    meta_endpoint = getattr(client.meta, "endpoint_url", None)
-
-    if endpoint_host:
-        endpoint_candidates.append(endpoint_host)
-    if meta_endpoint:
-        endpoint_candidates.append(meta_endpoint)
-
-    for endpoint in endpoint_candidates:
-        parsed = urlparse(endpoint)
-        host = (parsed.netloc or parsed.path or endpoint).split(":")[0].lower()
-        m = re.search(r'(?:^|\.)compat\.objectstorage\.([a-z0-9-]+)\.oraclecloud\.com$', host)
-        if not m:
-            m = re.search(r'(?:^|\.)objectstorage\.([a-z0-9-]+)\.oraclecloud\.com$', host)
-        if not m:
-            # AWS S3 endpoint patterns:
-            # - s3.<region>.amazonaws.com
-            # - s3-<region>.amazonaws.com
-            # - s3.dualstack.<region>.amazonaws.com
-            # plus .com.cn variants
-            m = re.search(
-                r'(?:^|\.)(?:s3(?:[.-]dualstack)?[.-])([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$',
-                host,
-            )
-        if m:
-            return m.group(1)
-    return None
-
-def _get_effective_region(client):
-    return _infer_region_from_endpoint(client) or getattr(client.meta, "region_name", None)
 
 #def background_worker():
 #    while True:
@@ -330,7 +305,7 @@ def patched_make_api_call(self, operation_name, kwarg):
         user_range = kwarg.get('Range')
         #print(f"xh user_range = {user_range}, kwarg = {kwarg}")
         resource = f"s3://{bucket}/{key}"
-        region = _get_effective_region(self)
+        region = getattr(self.meta, "region_name", None)
 
         file_path, url_hash, shard_idx, is_available = get_shard_details(bucket, key, region)
         etag_path = os.path.join(os.path.dirname(file_path), "." + os.path.basename(file_path) + ".etag")

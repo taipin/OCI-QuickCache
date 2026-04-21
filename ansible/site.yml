@@ -1,7 +1,9 @@
 ---
 - hosts: compute
   become: yes
-  vars:
-    oci_qc_cache_dirs: "/mnt/localdisk/object_store/OCI_QC_Cache"
+  vars_files:
+    - roles/oci_qc/files/env.yaml
+
   roles:
     - oci_qc
+    - shard_management

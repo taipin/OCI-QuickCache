@@ -12,7 +12,7 @@ source $myconda/etc/profile.d/conda.sh
 conda activate QuickCache
 
 export PYTHONPATH=${PYTHONPATH}:${PWD}    # to help relocated MLP/storage/mlpstorage/
-[[ "$storage_type" == "s3cache" ]] && export PYTHONPATH=/opt/oci-hpc/ociqc:${PYTHONPATH}
+[[ "$storage_type" == "s3cache" ]] && export export PYTHONPATH=/opt/oci-hpc/ociqc:${PYTHONPATH}
 
 #export OCI_QC_MAX_CACHE_AGE = 360000  # TTL in seconds, invalidate cache above it
 #export OCI_QC_MAX_CACHE_NO = 5000000   # Max number of files to cache
@@ -22,6 +22,5 @@ export PYTHONPATH=${PYTHONPATH}:${PWD}    # to help relocated MLP/storage/mlpsto
 #export OCI_QC_SHARD_FORM="03d"  # default "03d"
 #export OCI_QC_LOG_FILE="/mnt/localdisk/xh/boto3_cache_audit.csv"  # default "boto3_cache_audit.csv"
 #export OCI_QC_ERR_FILE="/mnt/localdisk/xh/boto3_cache_errors.csv"  # default "boto3_cache_errors.csv"
-export OCI_QC_MAP_RELOAD_INTERVAL=30
 
 python get_latency.py get

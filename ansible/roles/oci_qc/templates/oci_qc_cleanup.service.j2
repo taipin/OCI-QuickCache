@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=oneshot
-Environment="OCI_QC_CACHE_DIRS={{ oci_qc_cache_dirs | default('/mnt/localdisk/object_store/OCI_QC_Cache') }}"
-Environment="OCI_QC_MAX_FULL={{ oci_qc_max_full | default('0.9') }}"
-Environment="OCI_QC_CLEAN_TARGET={{ oci_qc_target | default('0.7') }}"
-Environment="OCI_QC_MAX_CACHE_NO={{ oci_qc_max_files | default('1000') }}"
-ExecStart=/usr/bin/python3 /opt/oci-hpc/ociqc/oci_qc_cleanup.py
+Environment="OCI_QC_CLEAN_MAX={{ OCI_QC_CLEAN_MAX | default('0.9') }}"
+Environment="OCI_QC_CLEAN_TARGET={{ OCI_QC_CLEAN_TARGET | default('0.7') }}"
+Environment="OCI_QC_MAX_CACHE_FILES={{ OCI_QC_MAX_CACHE_FILES | default('500000000') }}"
+ExecStart=/usr/bin/python3 {{ OCI_QC_INSTALL_DIR }}/oci_qc_cleanup.py
+StandardOutput=append:"{{ OCI_QC_CLEANUP_LOG }}"
+StandardError=append:"{{ OCI_QC_CLEANUP_LOG }}"
 User=root
-

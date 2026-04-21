@@ -1,0 +1,29 @@
+---
+- name: Deploy configuration and scripts
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ OCI_QC_INSTALL_DIR }}/{{ item.src }}"
+    mode: "{{ item.mode }}"
+    owner: ubuntu
+    group: ubuntu
+  loop:
+    - { src: manage_sharding.py, mode: '0755' }
+    - { src: migrate_shards.py, mode: '0755' }
+
+- name: Deploy Systemd templates
+  template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+  loop:
+    - oci-shard-sync.service
+    - oci-shard-sync.timer
+  notify: daemon-reload
+
+- name: Flush handlers to apply systemd changes
+  meta: flush_handlers
+
+- name: Enable and start Shard Sync Timer
+  systemd:
+    name: oci-shard-sync.timer
+    enabled: yes
+    state: started

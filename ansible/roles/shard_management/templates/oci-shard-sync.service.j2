@@ -1,0 +1,13 @@
+[Unit]
+Description=OCI Shard Map Sync
+# Ensure SSSD is up so '{{ ociqc_group_name }}' group is recognized
+After=local-fs.target network.target sssd.service
+Requires=sssd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 {{ OCI_QC_INSTALL_DIR }}/manage_sharding.py
+StandardOutput=append:"{{ OCI_QC_MAPPING_LOG }}"
+StandardError=append:"{{ OCI_QC_MAPPING_LOG }}"
+User=root
+
