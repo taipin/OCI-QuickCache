@@ -7,7 +7,7 @@ Requires=sssd.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/python3 {{ OCI_QC_INSTALL_DIR }}/manage_sharding.py
-StandardOutput=append:"{{ OCI_QC_MAPPING_LOG }}"
-StandardError=append:"{{ OCI_QC_MAPPING_LOG }}"
+StandardOutput=append:{{ OCI_QC_MAPPING_LOG }}
+StandardError=append:{{ OCI_QC_MAPPING_LOG }}
 User=root
 

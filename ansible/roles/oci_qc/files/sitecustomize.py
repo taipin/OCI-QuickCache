@@ -17,14 +17,20 @@ USE_DIRECT_IO = False
 OCI_QC_ROOT_DEV_ID = os.stat('/').st_dev   # will check against to avoid root device if not /tmp
 
 ENV_PATH = os.getenv("OCI_QC_ENV_PATH") or os.path.join(os.path.dirname(__file__), "env.yaml")
+OCI_QC_DEBUG_LEVEL = int(os.getenv("OCI_QC_DEBUG_LEVEL", "1"))
+
+def ociqc_print(level, msg):
+    if OCI_QC_DEBUG_LEVEL >= level:
+        print(msg)
+
 try:
     with open(ENV_PATH, 'r') as y:
         CFG = yaml.safe_load(y) or {}
 except NameError:
-    print("Error: The 'yaml' library is not imported.")
+    ociqc_print(1, "Error: The 'yaml' library is not imported.")
     CFG = {}
 except (FileNotFoundError, yaml.YAMLError) as e:
-    print(f"Warning: Could not load {ENV_PATH} ({e}). Using code defaults.")
+    ociqc_print(1, f"Warning: Could not load {ENV_PATH} ({e}). Using code defaults.")
     CFG = {}
 
 OCI_QC_SHARD_MAP_FILE = CFG.get('OCI_QC_SHARD_MAP_FILE') or "/fss/ociqc/shard_map.json"
@@ -38,6 +44,7 @@ OCI_QC_LOG_FILE = os.getenv("OCI_QC_LOG_FILE") or CFG.get('OCI_QC_LOG_FILE') or 
 OCI_QC_ERR_FILE = os.getenv("OCI_QC_ERR_FILE") or CFG.get('OCI_QC_ERR_FILE') or "cache_err.csv"
 OCI_QC_MAX_CACHE_AGE = int(os.getenv("OCI_QC_MAX_CACHE_AGE") or CFG.get('OCI_QC_MAX_CACHE_AGE') or 36000000)  # TTL in seconds, invalidate cache above it
 OCI_QC_MAP_RELOAD_INTERVAL = int(os.getenv("OCI_QC_MAP_RELOAD_INTERVAL") or CFG.get('OCI_QC_MAP_RELOAD_INTERVAL') or 600) # time interval in seconds to refresh shard map
+OCI_QC_DEBUG_LEVEL = int(os.getenv("OCI_QC_DEBUG_LEVEL") or CFG.get('OCI_QC_DEBUG_LEVEL') or OCI_QC_DEBUG_LEVEL)
 
 #print(f"xh envs OCI_QC_SHARD_PREFIX = {OCI_QC_SHARD_PREFIX}, OCI_QC_LOG_FILE = {OCI_QC_LOG_FILE}")
 # --- Locking Mechanism ---
@@ -95,8 +102,8 @@ def log_error_event(resource, reason, file_path, url_hash, shard_idx):
                 if not file_exists:
                     writer.writerow(['timestamp', 'resource', 'reason', 'hash', 'shard', 'size_bytes', 'mtime', 'atime'])
                 writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), resource, reason, url_hash, shard_idx, size, time.time(), time.time()])
-    except Exception:
-        # swallow errors to avoid affecting normal flow
+    except Exception as e:
+        ociqc_print(1, f"Warning: failed to write OCI_QC_ERR_FILE ({OCI_QC_ERR_FILE}): {e}")
         pass
 
 def is_valid_mount(path):
@@ -141,7 +148,7 @@ def refresh_shard_state():
     if new_map:
         OCI_QC_SHARD_MAP = new_map
         OCI_QC_NUM_SHARDS = len(new_map)
-        print(f"new_map = {new_map}")
+        ociqc_print(3, f"new_map = {new_map}")
     else:
         # If file is missing/corrupt, we keep old map or set safe defaults
         OCI_QC_NUM_SHARDS = len(OCI_QC_SHARD_MAP) if OCI_QC_SHARD_MAP else 1
@@ -524,4 +531,4 @@ def patched_make_api_call(self, operation_name, kwarg):
     return _original_make_api_call(self, operation_name, kwarg)
 
 botocore.client.BaseClient._make_api_call = patched_make_api_call
-print("!!! SITECUSTOMIZE: Universal S3 Cache (Range + 304 + LRU) Active !!!")
+ociqc_print(1, "!!! SITECUSTOMIZE: Universal S3 Cache (Range + 304 + LRU) Active !!!")

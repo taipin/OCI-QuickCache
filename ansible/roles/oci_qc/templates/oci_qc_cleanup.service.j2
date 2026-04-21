@@ -8,6 +8,6 @@ Environment="OCI_QC_CLEAN_MAX={{ OCI_QC_CLEAN_MAX | default('0.9') }}"
 Environment="OCI_QC_CLEAN_TARGET={{ OCI_QC_CLEAN_TARGET | default('0.7') }}"
 Environment="OCI_QC_MAX_CACHE_FILES={{ OCI_QC_MAX_CACHE_FILES | default('500000000') }}"
 ExecStart=/usr/bin/python3 {{ OCI_QC_INSTALL_DIR }}/oci_qc_cleanup.py
-StandardOutput=append:"{{ OCI_QC_CLEANUP_LOG }}"
-StandardError=append:"{{ OCI_QC_CLEANUP_LOG }}"
+StandardOutput=append:{{ OCI_QC_CLEANUP_LOG }}
+StandardError=append:{{ OCI_QC_CLEANUP_LOG }}
 User=root
