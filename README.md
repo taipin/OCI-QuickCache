@@ -17,6 +17,8 @@ OCI QuickCache adds host-local object caching for S3-compatible `GetObject` work
 
 ## How it works (high level)
 
+<img src="docs/arch2-pres.png" alt="High-level architecture" width="1200">
+
 1. Application issues `GetObject` via boto3/botocore.
 2. `sitecustomize.py` intercepts S3 `GetObject` calls.
 3. A shard is selected from `shard_map.json` based on hashed object key.
