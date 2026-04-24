@@ -35,6 +35,7 @@ OCI QuickCache accelerates repeated S3 `GetObject` reads by adding a local cache
 - Risk: app owners may not realize caching is active.
 - Counterpart:
 - Document enablement and scope clearly.
+- Apps set environment variable PYTHONPATH explicitly to use it.
 - Keep startup banner + debug levels.
 - Provide a controlled opt-out path for troubleshooting.
 
@@ -51,6 +52,7 @@ OCI QuickCache accelerates repeated S3 `GetObject` reads by adding a local cache
 - Keep structured audit/error logs.
 - Add explicit MISS_NO_CACHE reasons.
 - Maintain debug levels and operational runbooks.
+- Allow apps to bypass caching through S3 parameters and environment variable.
 
 4. Cache correctness/consistency edge cases
 - Risk: stale files, path/permission issues, partial writes.
