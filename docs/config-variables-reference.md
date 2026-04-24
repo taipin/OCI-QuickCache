@@ -1,12 +1,5 @@
 # Environment Variables and Global Parameters Reference
-
-This document consolidates configuration keys from:
-
-- `ansible/roles/oci_qc/files/env.yaml`
-- `ansible/roles/oci_qc/files/sitecustomize.py`
-- `ansible/roles/oci_qc/files/oci_qc_cleanup.py`
-- `ansible/roles/shard_management/files/manage_sharding.py`
-- `ansible/roles/shard_management/files/migrate_shards.py`
+File ansible/roles/oci_qc/files/env.yaml contains all configuration parameters and their default settings. Some of them can be changed at runtime, through environment variable (the same name as the configuration parameter (those having Y under "Runtime Override"). For those which can not be modified at runtime, we recommend making changes to env.yaml, and then rerun ansible-playbook -i inventory.ini site.yml
 
 ## Environment/config variables
 
