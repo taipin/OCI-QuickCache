@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 OCI_QC_NUM_SHARDS = 1       # Global, number of total shards to be determined by OCI_QC_SHARDS_PER_NODE and the number of nodes
 OCI_QC_SHARD_MAP = None     # In-memory shard-to-node (file sys) map
 OCI_QC_LAST_CHECK_TIME = 0  # In-memory global for current process
-USER_NAME = pwd.getpwuid(os.getuid()).pw_name   # for cache subdir
+CACHE_USER_NAME = pwd.getpwuid(os.getuid()).pw_name
 #USE_DIRECT_IO = True   # an experimental parameter to control cache read
 USE_DIRECT_IO = False
 OCI_QC_ROOT_DEV_ID = os.stat('/').st_dev   # will check against to avoid root device if not /tmp
@@ -33,6 +33,13 @@ except (FileNotFoundError, yaml.YAMLError) as e:
     ociqc_print(1, f"Warning: Could not load {ENV_PATH} ({e}). Using code defaults.")
     CFG = {}
 
+def _to_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
+
 OCI_QC_SHARD_MAP_FILE = CFG.get('OCI_QC_SHARD_MAP_FILE') or "/fss/ociqc/shard_map.json"
 #OCI_QC_CACHE_DIR_PREFIX = CFG.get('OCI_QC_CACHE_DIR_PREFIX') or "/tmp/cache_test/fs-"
 OCI_QC_CACHE_DIR_NAME = CFG.get('OCI_QC_CACHE_DIR_NAME') or "OCI_QC_Cache"
@@ -45,6 +52,10 @@ OCI_QC_ERR_FILE = os.getenv("OCI_QC_ERR_FILE") or CFG.get('OCI_QC_ERR_FILE') or 
 OCI_QC_MAX_CACHE_AGE = int(os.getenv("OCI_QC_MAX_CACHE_AGE") or CFG.get('OCI_QC_MAX_CACHE_AGE') or 36000000)  # TTL in seconds, invalidate cache above it
 OCI_QC_MAP_RELOAD_INTERVAL = int(os.getenv("OCI_QC_MAP_RELOAD_INTERVAL") or CFG.get('OCI_QC_MAP_RELOAD_INTERVAL') or 600) # time interval in seconds to refresh shard map
 OCI_QC_DEBUG_LEVEL = int(os.getenv("OCI_QC_DEBUG_LEVEL") or CFG.get('OCI_QC_DEBUG_LEVEL') or OCI_QC_DEBUG_LEVEL)
+OCI_QC_CACHE_USE_USER_SUBDIR = _to_bool(
+    os.getenv("OCI_QC_CACHE_USE_USER_SUBDIR", CFG.get("OCI_QC_CACHE_USE_USER_SUBDIR")),
+    False,
+)
 
 #print(f"xh envs OCI_QC_SHARD_PREFIX = {OCI_QC_SHARD_PREFIX}, OCI_QC_LOG_FILE = {OCI_QC_LOG_FILE}")
 # --- Locking Mechanism ---
@@ -183,7 +194,10 @@ def get_shard_details(bucket, key, region=None):
 
     # Path construction
     shard_name = f"{OCI_QC_SHARD_PREFIX}{shard_idx:{OCI_QC_SHARD_FORM}}"
-    shard_dir = os.path.join(mount_path, f"{OCI_QC_CACHE_DIR_NAME}/{USER_NAME}", shard_name)
+    if OCI_QC_CACHE_USE_USER_SUBDIR:
+        shard_dir = os.path.join(mount_path, f"{OCI_QC_CACHE_DIR_NAME}/{CACHE_USER_NAME}", shard_name)
+    else:
+        shard_dir = os.path.join(mount_path, OCI_QC_CACHE_DIR_NAME, shard_name)
     region = region or "unknown-region"
     key_dir = os.path.dirname(key).lstrip('/')
     key_file = os.path.basename(key) or 'object.bin'

@@ -12,15 +12,15 @@
   register: group_check
   failed_when: group_check is failed
 
-- name: Create local user log directory {{ OCI_QC_LOG_FILE | dirname }} with SetGID/Sticky Bit
+- name: Create local log dir {{ OCI_QC_LOG_FILE | dirname }} with SetGID/Sticky Bit
   file:
     path: "{{ OCI_QC_LOG_FILE | dirname }}"
     state: directory
     owner: root
     group: "{{ ociqc_group_name }}"
-    mode: '2775'
+    mode: '3775'
 
-- name: Apply Default ACLs to {{ OCI_QC_LOG_FILE | dirname }} for shared group writing
+- name: Set default ACLs to local log dir {{ OCI_QC_LOG_FILE | dirname }} for shared group writing
   ansible.posix.acl:
     path: "{{ OCI_QC_LOG_FILE | dirname }}"
     entity: "{{ ociqc_group_name }}"
@@ -30,27 +30,50 @@
     state: present
   # This ensures every NEW file created by ANY user is rw for the whole group
 
-- name: Create cache directory {{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }} with Sticky Bit
+- name: Create cache dir {{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }} with SetGID/Sticky Bit
   file:
     path: "{{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }}"
     state: directory
     owner: root
     group: "{{ ociqc_group_name }}"
-    mode: '1775'
+    mode: '3775'
+
+- name: Set default ACLs to cache dir {{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }} for cache sharing
+  ansible.posix.acl:
+    path: "{{ OCI_QC_CACHE_DIR_LOCAL }}/{{ OCI_QC_CACHE_DIR_NAME }}"
+    entity: "{{ ociqc_group_name }}"
+    etype: group
+    permissions: rwX
+    default: yes
+    state: present
+  when: OCI_QC_CACHE_USE_USER_SUBDIR | bool
 
 - name: Ensure /var/log/ociqc persistence via tmpfiles.d
   copy:
     dest: /etc/tmpfiles.d/ociqc.conf
-    content: "d {{ OCI_QC_LOG_FILE | dirname }} 2775 root {{ ociqc_group_name }} -"
+    content: "d {{ OCI_QC_LOG_FILE | dirname }} 3775 root {{ ociqc_group_name }} -"
     mode: '0644'
 
-- name: Ensure shared directory {{ OCI_QC_MAPPING_LOG | dirname }} for mapping file exists
+- name: Ensure shared directory {{ OCI_QC_SHARD_MAP_FILE | dirname }} for mapping file exists
   file:
-    path: "{{ OCI_QC_MAPPING_LOG | dirname }}"
+    path: "{{ OCI_QC_SHARD_MAP_FILE | dirname }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
+
+- name: Ensure log files have shared group and mode 0664
+  file:
+    path: "{{ item }}"
+    state: touch
+    owner: root
+    group: "{{ ociqc_group_name }}"
+    mode: '0664'
+  loop:
+    - "{{ OCI_QC_LOG_FILE }}"
+    - "{{ OCI_QC_ERR_FILE }}"
+    - "{{ OCI_QC_MAPPING_LOG }}"
+    - "{{ OCI_QC_CLEANUP_LOG }}"
 
 - name: Ensure install directory {{ OCI_QC_INSTALL_DIR }} exists
   file:
@@ -115,4 +138,3 @@
     name: oci_qc_cleanup.timer
     enabled: yes
     state: started
-

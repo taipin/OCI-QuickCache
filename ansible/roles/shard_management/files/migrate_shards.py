@@ -5,6 +5,13 @@ import os, json, yaml, subprocess, sys, shutil
 ENV_PATH = os.getenv("OCI_QC_ENV_PATH") or os.path.join(os.path.dirname(__file__), "env.yaml")
 #ENV_PATH = "/opt/oci-hpc/ociqc/env.yaml"
 
+def _to_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
+
 def is_path_alive(path, timeout_sec=3):
     """Checks if a mount is responsive to avoid hangs."""
     try:
@@ -20,6 +27,10 @@ def migrate(source_map_path, dry_run=True):
     
     current_map_path = cfg['OCI_QC_SHARD_MAP_FILE']
     cache_root_name = cfg.get('OCI_QC_CACHE_DIR_NAME', 'OCI_QC_Cache')
+    cache_use_user_subdir = _to_bool(
+        os.getenv("OCI_QC_CACHE_USE_USER_SUBDIR", cfg.get("OCI_QC_CACHE_USE_USER_SUBDIR")),
+        False,
+    )
 
     try:
         with open(source_map_path, 'r') as f:
@@ -50,37 +61,63 @@ def migrate(source_map_path, dry_run=True):
                 print(f"SKIPPING Shard {shard_subdir}: Source mount {om} is DOWN.")
                 continue
             
-            # Look for user folders inside the cache root
             old_cache_root = os.path.join(om, cache_root_name)
             if not os.path.exists(old_cache_root):
                 continue
 
-            for user_dir in os.listdir(old_cache_root):
-                src_path = os.path.join(old_cache_root, user_dir, shard_subdir)
-                
+            if cache_use_user_subdir:
+                # Layout: <mount>/<cache_root>/<user>/<shard>
+                for user_dir in os.listdir(old_cache_root):
+                    src_path = os.path.join(old_cache_root, user_dir, shard_subdir)
+                    if os.path.isdir(src_path):
+                        size = 0
+                        try:
+                            res = subprocess.run(["timeout", "5", "du", "-sb", src_path],
+                                                 capture_output=True, text=True)
+                            if res.returncode == 0:
+                                size = int(res.stdout.split()[0])
+                        except:
+                            pass
+
+                        total_moved_bytes += size
+                        print(f"{'Plan' if dry_run else 'Moving'}: Shard {shard_subdir} (User: {user_dir}, {size/1e6:.2f} MB)")
+
+                        if not dry_run:
+                            dst_path = os.path.join(nm, cache_root_name, user_dir, shard_subdir)
+                            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                            try:
+                                subprocess.run(
+                                    ["rsync", "-av", "--remove-source-files", src_path + "/", dst_path + "/"],
+                                    check=True,
+                                )
+                                if os.path.exists(src_path):
+                                    shutil.rmtree(src_path)
+                            except Exception as e:
+                                print(f"  ERROR moving {src_path}: {e}")
+            else:
+                # Layout: <mount>/<cache_root>/<shard>
+                src_path = os.path.join(old_cache_root, shard_subdir)
                 if os.path.isdir(src_path):
-                    # --- FIXED: Correct variable used for size calculation ---
                     size = 0
                     try:
-                        res = subprocess.run(["timeout", "5", "du", "-sb", src_path], 
+                        res = subprocess.run(["timeout", "5", "du", "-sb", src_path],
                                              capture_output=True, text=True)
                         if res.returncode == 0:
                             size = int(res.stdout.split()[0])
-                    except: 
+                    except:
                         pass
 
                     total_moved_bytes += size
-                    print(f"{'Plan' if dry_run else 'Moving'}: Shard {shard_subdir} (User: {user_dir}, {size/1e6:.2f} MB)")
+                    print(f"{'Plan' if dry_run else 'Moving'}: Shard {shard_subdir} ({size/1e6:.2f} MB)")
 
                     if not dry_run:
-                        dst_path = os.path.join(nm, cache_root_name, user_dir, shard_subdir)
+                        dst_path = os.path.join(nm, cache_root_name, shard_subdir)
                         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                        
                         try:
-                            # Migrate data
-                            subprocess.run(["rsync", "-av", "--remove-source-files", 
-                                          src_path + "/", dst_path + "/"], check=True)
-                            # Cleanup empty directory
+                            subprocess.run(
+                                ["rsync", "-av", "--remove-source-files", src_path + "/", dst_path + "/"],
+                                check=True,
+                            )
                             if os.path.exists(src_path):
                                 shutil.rmtree(src_path)
                         except Exception as e:
@@ -98,4 +135,3 @@ if __name__ == "__main__":
     else:
         # sys.argv[1] is the map file, we check for --live in the whole list
         migrate(sys.argv[1], dry_run=("--live" not in sys.argv))
-
