@@ -2,6 +2,8 @@
 
 OCI QuickCache adds host-local object caching for S3-compatible `GetObject` workloads by monkey-patching the Botocore S3 client path. It is designed for multi-node compute clusters where repeated reads of the same objects benefit from local cache hits and shard-aware placement.
 
+<img src="docs/GPU_NVMe_slide.svg" alt="High-level architecture" width="1200">
+
 ## What this repo contains
 
 - `ansible/`: deployment and operations automation.
