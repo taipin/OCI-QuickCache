@@ -72,8 +72,6 @@
   loop:
     - "{{ OCI_QC_LOG_FILE }}"
     - "{{ OCI_QC_ERR_FILE }}"
-    - "{{ OCI_QC_MAPPING_LOG }}"
-    - "{{ OCI_QC_CLEANUP_LOG }}"
 
 - name: Ensure install directory {{ OCI_QC_INSTALL_DIR }} exists
   file:
