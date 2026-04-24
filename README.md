@@ -43,6 +43,7 @@ ansible-playbook -i inventory.ini site.yml
 ```
 
 Playbook target group: `compute` (see `ansible/inventory.ini`).
+Detailed deployment guide: [`ansible/README.md`](ansible/README.md).
 
 ## After deployment (expected)
 
