@@ -2,7 +2,7 @@
 
 OCI QuickCache adds host-local object caching for S3-compatible `GetObject` workloads by monkey-patching the Botocore S3 client path. It is designed for multi-node compute clusters where repeated reads of the same objects benefit from local cache hits and shard-aware placement.
 
-<img src="docs/GPU_NVMe_slide.svg" alt="High-level architecture" width="1200">
+<img src="docs/GPU_NVMe_slide.svg" alt="Solution architecture" width="1200">
 
 ## What this repo contains
 
@@ -19,7 +19,7 @@ OCI QuickCache adds host-local object caching for S3-compatible `GetObject` work
 
 ## How it works (high level)
 
-<img src="docs/arch2-pres.png" alt="High-level architecture" width="1200">
+<img src="docs/arch2-pres.png" alt="High-level software architecture" width="1200">
 
 1. Application issues `GetObject` via boto3/botocore.
 2. `sitecustomize.py` intercepts S3 `GetObject` calls.
@@ -64,6 +64,12 @@ Detailed deployment guide: [`ansible/README.md`](ansible/README.md).
 - `test/run_latency.sh`
 
 See full operator guide: [`docs/install-verify-test.md`](docs/install-verify-test.md)
+
+## Some performance measurement
+
+This chart shows performance comparisons of un-official MLPerf Storage benchmark UNet3D on a single node. After epoch 1, which fully establishes local caches, the S3 Cache performance is almost the same as local file system.
+
+<img src="docs/UNet3D_s3cache.png" alt="performance comparison" width="1200">
 
 ## Documentation
 
